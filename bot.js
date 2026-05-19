@@ -19,6 +19,8 @@ let database = {
 
     solicitacoes: [],
 
+    limites: {},
+
     lotes: []
 
 };
@@ -144,13 +146,6 @@ bot.onText(/\/start/, async (msg) => {
 
         [
             {
-                text: '📊 Status',
-                callback_data: 'status'
-            }
-        ],
-
-        [
-            {
                 text: '🆔 Meu ID',
                 callback_data: 'meu_id'
             }
@@ -161,6 +156,17 @@ bot.onText(/\/start/, async (msg) => {
 
     // BOTÕES ADMIN
     if (userId == ADMIN_ID) {
+
+        botoes.push(
+
+            [
+                {
+                    text: '📊 Status',
+                    callback_data: 'status'
+                }
+            ]
+
+        );
 
         botoes.push(
 
@@ -267,69 +273,6 @@ bot.onText(/\/remover (.+)/, (msg, match) => {
 });
 
 
-// LISTA
-bot.onText(/\/lista/, async (msg) => {
-
-    const chatId = msg.chat.id;
-    const userId = msg.from.id;
-
-
-    // verificar acesso
-    if (!database.usuariosAprovados.includes(userId)) {
-
-        return bot.sendMessage(chatId,
-            '❌ Você não possui acesso.\n\nUse /start para solicitar.');
-    }
-
-
-    // procurar lote
-    const lote = database.lotes.find(l => {
-
-        if (l.usos >= 2) return false;
-
-        if (l.usuarios.includes(userId)) return false;
-
-        return true;
-
-    });
-
-
-    // sem lote
-    if (!lote) {
-
-        return bot.sendMessage(chatId,
-            '❌ Nenhum lote disponível.');
-    }
-
-
-    // registrar
-    lote.usos++;
-    lote.usuarios.push(userId);
-
-    salvarDatabase();
-
-
-    // mensagem
-    await bot.sendMessage(chatId,
-
-`✅ Lista entregue com sucesso!
-
-📦 Lote: ${lote.numero}
-📊 Total de contatos: ${lote.contatos.length}
-
-📨 Enviando a lista no chat...`
-    );
-
-
-    // enviar lista
-    await bot.sendMessage(
-        chatId,
-        lote.contatos.join('\n')
-    );
-
-});
-
-
 // STATUS
 bot.onText(/\/status/, (msg) => {
 
@@ -409,8 +352,97 @@ bot.on('callback_query', async (query) => {
     // RECEBER LISTA
     if (data === 'receber_lista') {
 
-        bot.sendMessage(chatId,
-            'Use o comando:\n\n/lista');
+        // verificar acesso
+        if (!database.usuariosAprovados.includes(userId)) {
+
+            return bot.sendMessage(chatId,
+                '❌ Você não possui acesso.');
+        }
+
+
+        // criar limite
+        if (!database.limites[userId]) {
+
+            database.limites[userId] = {
+                total: 0,
+                tempo: Date.now()
+            };
+
+        }
+
+
+        const limite = database.limites[userId];
+
+
+        // resetar após 24h
+        if (Date.now() - limite.tempo > 86400000) {
+
+            limite.total = 0;
+            limite.tempo = Date.now();
+
+        }
+
+
+        // limite atingido
+        if (limite.total >= 4) {
+
+            return bot.sendMessage(chatId,
+
+`❌ Limite diário atingido.
+
+⏳ Aguarde 24 horas.`);
+        }
+
+
+        // procurar lote
+        const lote = database.lotes.find(l => {
+
+            if (l.usos >= 2) return false;
+
+            if (l.usuarios.includes(userId)) return false;
+
+            return true;
+
+        });
+
+
+        // sem lote
+        if (!lote) {
+
+            return bot.sendMessage(chatId,
+                '❌ Nenhum lote disponível.');
+        }
+
+
+        // registrar lote
+        lote.usos++;
+        lote.usuarios.push(userId);
+
+        // registrar limite
+        limite.total++;
+
+        salvarDatabase();
+
+
+        // mensagem
+        await bot.sendMessage(chatId,
+
+`✅ Lista entregue com sucesso!
+
+📦 Lote: ${lote.numero}
+📊 Total de contatos: ${lote.contatos.length}
+
+📥 Restam ${4 - limite.total} listas hoje.
+
+📨 Enviando lista...`
+        );
+
+
+        // enviar lista
+        await bot.sendMessage(
+            chatId,
+            lote.contatos.join('\n')
+        );
 
     }
 
@@ -418,8 +450,32 @@ bot.on('callback_query', async (query) => {
     // STATUS
     if (data === 'status') {
 
-        bot.sendMessage(chatId,
-            'Use o comando:\n\n/status');
+        if (userId != ADMIN_ID) return;
+
+        let texto =
+`📊 STATUS GERAL
+
+👥 Usuários aprovados: ${database.usuariosAprovados.length}
+⏳ Solicitações pendentes: ${database.solicitacoes.length}
+
+📦 LOTES
+
+`;
+
+
+        database.lotes.forEach(lote => {
+
+            texto +=
+`📦 ${lote.numero}
+✅ ${lote.usos}/2 usos
+👤 ${lote.usuarios.length} usuários
+
+`;
+
+        });
+
+
+        bot.sendMessage(chatId, texto);
 
     }
 
