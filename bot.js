@@ -3,7 +3,14 @@ const fs = require('fs');
 
 const token = '8594892663:AAF1EvbkgMn7kRW1AXM5c75BQyyPLXMlbQI';
 
-const ADMIN_ID = 8123986377;
+const ADMIN_IDS = [
+    8123986377,
+    8195619720
+];
+
+function isAdmin(userId) {
+    return ADMIN_IDS.includes(Number(userId));
+}
 
 const bot = new TelegramBot(token, {
     polling: true
@@ -14,7 +21,7 @@ const bot = new TelegramBot(token, {
 let database = {
 
     usuariosAprovados: [
-        ADMIN_ID
+        ...ADMIN_IDS
     ],
 
     solicitacoes: [],
@@ -32,7 +39,7 @@ if (fs.existsSync('database.json')) {
     try {
 
         database = JSON.parse(
-            fs.readFileSync('database.json')
+            fs.readFileSync('database.json', 'utf8')
         );
 
     } catch (error) {
@@ -45,35 +52,70 @@ if (fs.existsSync('database.json')) {
 
 
 // CORRIGIR DATABASE ANTIGO
-if (!database.usuariosAprovados) {
-    database.usuariosAprovados = [ADMIN_ID];
+if (!Array.isArray(database.usuariosAprovados)) {
+    database.usuariosAprovados = [];
 }
 
-if (!database.usuariosAprovados.includes(ADMIN_ID)) {
-    database.usuariosAprovados.push(ADMIN_ID);
-}
+database.usuariosAprovados = database.usuariosAprovados
+    .map(Number)
+    .filter(id => !Number.isNaN(id));
 
-if (!database.solicitacoes) {
+ADMIN_IDS.forEach(adminId => {
+
+    if (!database.usuariosAprovados.includes(adminId)) {
+        database.usuariosAprovados.push(adminId);
+    }
+
+});
+
+
+if (!Array.isArray(database.solicitacoes)) {
     database.solicitacoes = [];
 }
 
-if (!database.limites) {
+database.solicitacoes = database.solicitacoes
+    .map(Number)
+    .filter(id => !Number.isNaN(id));
+
+
+if (!database.limites || typeof database.limites !== 'object' || Array.isArray(database.limites)) {
     database.limites = {};
 }
 
-if (!database.lotes) {
+
+if (!Array.isArray(database.lotes)) {
     database.lotes = [];
 }
+
+database.lotes.forEach(lote => {
+
+    if (!lote.numero) lote.numero = '000';
+
+    lote.usos = Number(lote.usos || 0);
+
+    if (!Array.isArray(lote.usuarios)) {
+        lote.usuarios = [];
+    }
+
+    lote.usuarios = lote.usuarios
+        .map(Number)
+        .filter(id => !Number.isNaN(id));
+
+    if (!Array.isArray(lote.contatos)) {
+        lote.contatos = [];
+    }
+
+});
 
 
 // CARREGAR LOTES TXT
 if (fs.existsSync('./lotes')) {
 
-    const arquivos = fs.readdirSync('./lotes');
+    const arquivos = fs.readdirSync('./lotes')
+        .filter(nomeArquivo => nomeArquivo.endsWith('.txt'))
+        .sort();
 
     arquivos.forEach(nomeArquivo => {
-
-        if (!nomeArquivo.endsWith('.txt')) return;
 
         const numeroLote = nomeArquivo.replace('.txt', '');
 
@@ -126,6 +168,10 @@ async function enviarMensagemGrande(chatId, texto) {
 
     const limite = 3800;
 
+    if (!texto || texto.trim() === '') {
+        return bot.sendMessage(chatId, 'Nenhuma informação encontrada.');
+    }
+
     for (let i = 0; i < texto.length; i += limite) {
 
         const parte = texto.slice(i, i + limite);
@@ -137,8 +183,80 @@ async function enviarMensagemGrande(chatId, texto) {
 }
 
 
+// AVISAR TODOS OS ADMINS
+function avisarAdmins(texto, opcoes = {}) {
+
+    ADMIN_IDS.forEach(adminId => {
+
+        bot.sendMessage(adminId, texto, opcoes).catch(() => {});
+
+    });
+
+}
+
+
+// GERAR STATUS
+function gerarStatus() {
+
+    let texto =
+`📊 STATUS GERAL
+
+👑 Administradores: ${ADMIN_IDS.length}
+👥 Usuários aprovados: ${database.usuariosAprovados.length}
+⏳ Solicitações pendentes: ${database.solicitacoes.length}
+📦 Total de lotes: ${database.lotes.length}
+
+📦 LOTES
+
+`;
+
+
+    database.lotes.forEach(lote => {
+
+        texto +=
+`📦 ${lote.numero}
+✅ ${lote.usos}/2 usos
+👤 ${lote.usuarios.length} usuários
+📊 Contatos: ${lote.contatos.length}
+
+`;
+
+    });
+
+
+    return texto;
+
+}
+
+
+// GERAR LOGS
+function gerarLogs() {
+
+    let texto = `📜 LOGS DOS LOTES\n\n`;
+
+
+    database.lotes.forEach(lote => {
+
+        texto +=
+`📦 Lote ${lote.numero}
+
+${lote.usuarios.join('\n') || 'Nenhum'}
+
+`;
+
+    });
+
+
+    return texto;
+
+}
+
+
 // ENTREGAR LISTA
 async function entregarLista(chatId, userId) {
+
+    userId = Number(userId);
+
 
     // verificar acesso
     if (!database.usuariosAprovados.includes(userId)) {
@@ -160,6 +278,9 @@ async function entregarLista(chatId, userId) {
 
 
     const limite = database.limites[userId];
+
+    limite.total = Number(limite.total || 0);
+    limite.tempo = Number(limite.tempo || Date.now());
 
 
     // resetar limite após 24 horas
@@ -243,7 +364,7 @@ async function entregarLista(chatId, userId) {
 // START
 bot.onText(/\/start/, async (msg) => {
 
-    const userId = msg.from.id;
+    const userId = Number(msg.from.id);
     const nome = msg.from.first_name || 'Sem nome';
     const chatId = msg.chat.id;
 
@@ -271,8 +392,8 @@ bot.onText(/\/start/, async (msg) => {
         );
 
 
-        // avisar admin com botões
-        bot.sendMessage(ADMIN_ID,
+        // avisar admins com botões
+        avisarAdmins(
 
 `🔔 Novo pedido de acesso
 
@@ -322,7 +443,7 @@ bot.onText(/\/start/, async (msg) => {
 
 
     // BOTÕES ADMIN
-    if (userId == ADMIN_ID) {
+    if (isAdmin(userId)) {
 
         botoes.push(
 
@@ -378,7 +499,7 @@ Escolha uma opção abaixo:`,
 // APROVAR POR COMANDO
 bot.onText(/\/aprovar (.+)/, (msg, match) => {
 
-    if (msg.from.id !== ADMIN_ID) return;
+    if (!isAdmin(msg.from.id)) return;
 
     const userId = Number(match[1]);
 
@@ -423,7 +544,7 @@ bot.onText(/\/aprovar (.+)/, (msg, match) => {
 // REMOVER POR COMANDO
 bot.onText(/\/remover (.+)/, (msg, match) => {
 
-    if (msg.from.id !== ADMIN_ID) return;
+    if (!isAdmin(msg.from.id)) return;
 
     const userId = Number(match[1]);
 
@@ -432,6 +553,13 @@ bot.onText(/\/remover (.+)/, (msg, match) => {
 
         return bot.sendMessage(msg.chat.id,
             '❌ ID inválido.');
+    }
+
+
+    if (isAdmin(userId)) {
+
+        return bot.sendMessage(msg.chat.id,
+            '❌ Você não pode remover um administrador pelo bot.js atual.');
     }
 
 
@@ -451,62 +579,53 @@ bot.onText(/\/remover (.+)/, (msg, match) => {
 
 
 // STATUS POR COMANDO
-bot.onText(/\/status/, (msg) => {
+bot.onText(/\/status/, async (msg) => {
 
-    if (msg.from.id !== ADMIN_ID) return;
+    if (!isAdmin(msg.from.id)) return;
 
-
-    let texto =
-`📊 STATUS GERAL
-
-👥 Usuários aprovados: ${database.usuariosAprovados.length}
-⏳ Solicitações pendentes: ${database.solicitacoes.length}
-
-📦 LOTES
-
-`;
-
-
-    database.lotes.forEach(lote => {
-
-        texto +=
-`📦 ${lote.numero}
-✅ ${lote.usos}/2 usos
-👤 ${lote.usuarios.length} usuários
-📊 Contatos: ${lote.contatos.length}
-
-`;
-
-    });
-
-
-    bot.sendMessage(msg.chat.id, texto);
+    await enviarMensagemGrande(
+        msg.chat.id,
+        gerarStatus()
+    );
 
 });
 
 
 // LOGS POR COMANDO
-bot.onText(/\/logs/, (msg) => {
+bot.onText(/\/logs/, async (msg) => {
 
-    if (msg.from.id !== ADMIN_ID) return;
+    if (!isAdmin(msg.from.id)) return;
 
+    await enviarMensagemGrande(
+        msg.chat.id,
+        gerarLogs()
+    );
 
-    let texto = `📜 LOGS DOS LOTES\n\n`;
-
-
-    database.lotes.forEach(lote => {
-
-        texto +=
-`📦 Lote ${lote.numero}
-
-${lote.usuarios.join('\n') || 'Nenhum'}
-
-`;
-
-    });
+});
 
 
-    bot.sendMessage(msg.chat.id, texto);
+// USUÁRIOS POR COMANDO
+bot.onText(/\/usuarios/, async (msg) => {
+
+    if (!isAdmin(msg.from.id)) return;
+
+    await enviarMensagemGrande(
+        msg.chat.id,
+        `👥 Usuários aprovados:\n\n${database.usuariosAprovados.join('\n') || 'Nenhum'}`
+    );
+
+});
+
+
+// PENDENTES POR COMANDO
+bot.onText(/\/pendentes/, async (msg) => {
+
+    if (!isAdmin(msg.from.id)) return;
+
+    await enviarMensagemGrande(
+        msg.chat.id,
+        `📥 Pendentes:\n\n${database.solicitacoes.join('\n') || 'Nenhum'}`
+    );
 
 });
 
@@ -516,6 +635,7 @@ bot.onText(/\/ping/, (msg) => {
 
     bot.sendMessage(msg.chat.id,
         '🏓 Bot online!');
+
 });
 
 
@@ -524,7 +644,7 @@ bot.on('callback_query', async (query) => {
 
     const chatId = query.message.chat.id;
     const data = query.data;
-    const userId = query.from.id;
+    const userId = Number(query.from.id);
 
 
     // responder botão imediatamente para não ficar carregando
@@ -537,7 +657,7 @@ bot.on('callback_query', async (query) => {
         // APROVAR USUÁRIO PELO BOTÃO
         if (data.startsWith('aprovar_')) {
 
-            if (userId != ADMIN_ID) return;
+            if (!isAdmin(userId)) return;
 
             const novoUserId = Number(data.replace('aprovar_', ''));
 
@@ -549,12 +669,28 @@ bot.on('callback_query', async (query) => {
             }
 
 
-            if (!database.usuariosAprovados.includes(novoUserId)) {
+            if (database.usuariosAprovados.includes(novoUserId)) {
 
-                database.usuariosAprovados.push(novoUserId);
+                await bot.sendMessage(chatId,
+                    `⚠️ Usuário ${novoUserId} já estava aprovado.`
+                );
+
+                await bot.editMessageText(
+                    `⚠️ Pedido já estava aprovado
+
+🆔 ID: ${novoUserId}`,
+                    {
+                        chat_id: chatId,
+                        message_id: query.message.message_id
+                    }
+                ).catch(() => {});
+
+                return;
 
             }
 
+
+            database.usuariosAprovados.push(novoUserId);
 
             database.solicitacoes =
                 database.solicitacoes.filter(
@@ -592,7 +728,7 @@ bot.on('callback_query', async (query) => {
         // RECUSAR USUÁRIO PELO BOTÃO
         if (data.startsWith('recusar_')) {
 
-            if (userId != ADMIN_ID) return;
+            if (!isAdmin(userId)) return;
 
             const novoUserId = Number(data.replace('recusar_', ''));
 
@@ -648,33 +784,12 @@ bot.on('callback_query', async (query) => {
         // STATUS
         if (data === 'status') {
 
-            if (userId != ADMIN_ID) return;
+            if (!isAdmin(userId)) return;
 
-            let texto =
-`📊 STATUS GERAL
-
-👥 Usuários aprovados: ${database.usuariosAprovados.length}
-⏳ Solicitações pendentes: ${database.solicitacoes.length}
-
-📦 LOTES
-
-`;
-
-
-            database.lotes.forEach(lote => {
-
-                texto +=
-`📦 ${lote.numero}
-✅ ${lote.usos}/2 usos
-👤 ${lote.usuarios.length} usuários
-📊 Contatos: ${lote.contatos.length}
-
-`;
-
-            });
-
-
-            return bot.sendMessage(chatId, texto);
+            return enviarMensagemGrande(
+                chatId,
+                gerarStatus()
+            );
 
         }
 
@@ -691,24 +806,12 @@ bot.on('callback_query', async (query) => {
         // LOGS
         if (data === 'logs') {
 
-            if (userId != ADMIN_ID) return;
+            if (!isAdmin(userId)) return;
 
-            let texto = `📜 LOGS DOS LOTES\n\n`;
-
-
-            database.lotes.forEach(lote => {
-
-                texto +=
-`📦 Lote ${lote.numero}
-
-${lote.usuarios.join('\n') || 'Nenhum'}
-
-`;
-
-            });
-
-
-            return bot.sendMessage(chatId, texto);
+            return enviarMensagemGrande(
+                chatId,
+                gerarLogs()
+            );
 
         }
 
@@ -716,10 +819,12 @@ ${lote.usuarios.join('\n') || 'Nenhum'}
         // USUÁRIOS
         if (data === 'usuarios') {
 
-            if (userId != ADMIN_ID) return;
+            if (!isAdmin(userId)) return;
 
-            return bot.sendMessage(chatId,
-                `👥 Usuários aprovados:\n\n${database.usuariosAprovados.join('\n')}`);
+            return enviarMensagemGrande(
+                chatId,
+                `👥 Usuários aprovados:\n\n${database.usuariosAprovados.join('\n') || 'Nenhum'}`
+            );
 
         }
 
@@ -727,10 +832,12 @@ ${lote.usuarios.join('\n') || 'Nenhum'}
         // PENDENTES
         if (data === 'pendentes') {
 
-            if (userId != ADMIN_ID) return;
+            if (!isAdmin(userId)) return;
 
-            return bot.sendMessage(chatId,
-                `📥 Pendentes:\n\n${database.solicitacoes.join('\n') || 'Nenhum'}`);
+            return enviarMensagemGrande(
+                chatId,
+                `📥 Pendentes:\n\n${database.solicitacoes.join('\n') || 'Nenhum'}`
+            );
 
         }
 
@@ -744,6 +851,14 @@ ${lote.usuarios.join('\n') || 'Nenhum'}
         ).catch(() => {});
 
     }
+
+});
+
+
+// ERROS DE POLLING
+bot.on('polling_error', (error) => {
+
+    console.log('Erro de polling:', error.message);
 
 });
 
