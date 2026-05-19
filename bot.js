@@ -10,7 +10,7 @@ const bot = new TelegramBot(token, {
 });
 
 
-// DATABASE
+// DATABASE PADRÃO
 let database = {
 
     usuariosAprovados: [
@@ -29,10 +29,40 @@ let database = {
 // CARREGAR DATABASE
 if (fs.existsSync('database.json')) {
 
-    database = JSON.parse(
-        fs.readFileSync('database.json')
-    );
+    try {
 
+        database = JSON.parse(
+            fs.readFileSync('database.json')
+        );
+
+    } catch (error) {
+
+        console.log('Erro ao carregar database.json:', error.message);
+
+    }
+
+}
+
+
+// CORRIGIR DATABASE ANTIGO
+if (!database.usuariosAprovados) {
+    database.usuariosAprovados = [ADMIN_ID];
+}
+
+if (!database.usuariosAprovados.includes(ADMIN_ID)) {
+    database.usuariosAprovados.push(ADMIN_ID);
+}
+
+if (!database.solicitacoes) {
+    database.solicitacoes = [];
+}
+
+if (!database.limites) {
+    database.limites = {};
+}
+
+if (!database.lotes) {
+    database.lotes = [];
 }
 
 
@@ -42,6 +72,8 @@ if (fs.existsSync('./lotes')) {
     const arquivos = fs.readdirSync('./lotes');
 
     arquivos.forEach(nomeArquivo => {
+
+        if (!nomeArquivo.endsWith('.txt')) return;
 
         const numeroLote = nomeArquivo.replace('.txt', '');
 
@@ -89,11 +121,130 @@ function salvarDatabase() {
 salvarDatabase();
 
 
+// ENVIAR MENSAGEM GRANDE EM PARTES
+async function enviarMensagemGrande(chatId, texto) {
+
+    const limite = 3800;
+
+    for (let i = 0; i < texto.length; i += limite) {
+
+        const parte = texto.slice(i, i + limite);
+
+        await bot.sendMessage(chatId, parte);
+
+    }
+
+}
+
+
+// ENTREGAR LISTA
+async function entregarLista(chatId, userId) {
+
+    // verificar acesso
+    if (!database.usuariosAprovados.includes(userId)) {
+
+        return bot.sendMessage(chatId,
+            '❌ Você não possui acesso.\n\nUse /start para solicitar.');
+    }
+
+
+    // criar limite do usuário
+    if (!database.limites[userId]) {
+
+        database.limites[userId] = {
+            total: 0,
+            tempo: Date.now()
+        };
+
+    }
+
+
+    const limite = database.limites[userId];
+
+
+    // resetar limite após 24 horas
+    if (Date.now() - limite.tempo > 86400000) {
+
+        limite.total = 0;
+        limite.tempo = Date.now();
+
+    }
+
+
+    // verificar limite diário
+    if (limite.total >= 4) {
+
+        salvarDatabase();
+
+        return bot.sendMessage(chatId,
+
+`❌ Limite diário atingido.
+
+⏳ Aguarde 24 horas para solicitar novas listas.`);
+    }
+
+
+    // procurar lote disponível
+    const lote = database.lotes.find(l => {
+
+        if (l.usos >= 2) return false;
+
+        if (l.usuarios.includes(userId)) return false;
+
+        if (!l.contatos || l.contatos.length === 0) return false;
+
+        return true;
+
+    });
+
+
+    // nenhum lote disponível
+    if (!lote) {
+
+        return bot.sendMessage(chatId,
+            '❌ Nenhum lote disponível.');
+    }
+
+
+    // registrar uso do lote
+    lote.usos++;
+    lote.usuarios.push(userId);
+
+
+    // registrar limite diário
+    limite.total++;
+
+    salvarDatabase();
+
+
+    // mensagem inicial
+    await bot.sendMessage(chatId,
+
+`✅ Lista entregue com sucesso!
+
+📦 Lote: ${lote.numero}
+📊 Total de contatos: ${lote.contatos.length}
+
+📥 Restam ${4 - limite.total} listas hoje.
+
+📨 Enviando a lista no chat...`
+    );
+
+
+    // enviar contatos
+    await enviarMensagemGrande(
+        chatId,
+        lote.contatos.join('\n')
+    );
+
+}
+
+
 // START
 bot.onText(/\/start/, async (msg) => {
 
     const userId = msg.from.id;
-    const nome = msg.from.first_name;
+    const nome = msg.from.first_name || 'Sem nome';
     const chatId = msg.chat.id;
 
 
@@ -134,7 +285,7 @@ bot.onText(/\/start/, async (msg) => {
     }
 
 
-    // BOTÕES
+    // BOTÕES USUÁRIO
     let botoes = [
 
         [
@@ -164,11 +315,7 @@ bot.onText(/\/start/, async (msg) => {
                     text: '📊 Status',
                     callback_data: 'status'
                 }
-            ]
-
-        );
-
-        botoes.push(
+            ],
 
             [
                 {
@@ -220,6 +367,13 @@ bot.onText(/\/aprovar (.+)/, (msg, match) => {
     const userId = Number(match[1]);
 
 
+    if (!userId) {
+
+        return bot.sendMessage(msg.chat.id,
+            '❌ ID inválido.');
+    }
+
+
     // já aprovado
     if (database.usuariosAprovados.includes(userId)) {
 
@@ -244,8 +398,8 @@ bot.onText(/\/aprovar (.+)/, (msg, match) => {
 
 
     bot.sendMessage(userId,
-        '✅ Seu acesso foi aprovado!'
-    );
+        '✅ Seu acesso foi aprovado!\n\nUse /start para abrir o menu.'
+    ).catch(() => {});
 
 });
 
@@ -256,6 +410,13 @@ bot.onText(/\/remover (.+)/, (msg, match) => {
     if (msg.from.id !== ADMIN_ID) return;
 
     const userId = Number(match[1]);
+
+
+    if (!userId) {
+
+        return bot.sendMessage(msg.chat.id,
+            '❌ ID inválido.');
+    }
 
 
     database.usuariosAprovados =
@@ -296,6 +457,7 @@ bot.onText(/\/status/, (msg) => {
 `📦 ${lote.numero}
 ✅ ${lote.usos}/2 usos
 👤 ${lote.usuarios.length} usuários
+📊 Contatos: ${lote.contatos.length}
 
 `;
 
@@ -349,110 +511,27 @@ bot.on('callback_query', async (query) => {
     const userId = query.from.id;
 
 
-    // RECEBER LISTA
-    if (data === 'receber_lista') {
-
-        // verificar acesso
-        if (!database.usuariosAprovados.includes(userId)) {
-
-            return bot.sendMessage(chatId,
-                '❌ Você não possui acesso.');
-        }
+    // responder botão imediatamente para não ficar carregando
+    await bot.answerCallbackQuery(query.id).catch(() => {});
 
 
-        // criar limite
-        if (!database.limites[userId]) {
+    try {
 
-            database.limites[userId] = {
-                total: 0,
-                tempo: Date.now()
-            };
+
+        // RECEBER LISTA
+        if (data === 'receber_lista') {
+
+            return entregarLista(chatId, userId);
 
         }
 
 
-        const limite = database.limites[userId];
+        // STATUS
+        if (data === 'status') {
 
+            if (userId != ADMIN_ID) return;
 
-        // resetar após 24h
-        if (Date.now() - limite.tempo > 86400000) {
-
-            limite.total = 0;
-            limite.tempo = Date.now();
-
-        }
-
-
-        // limite atingido
-        if (limite.total >= 4) {
-
-            return bot.sendMessage(chatId,
-
-`❌ Limite diário atingido.
-
-⏳ Aguarde 24 horas.`);
-        }
-
-
-        // procurar lote
-        const lote = database.lotes.find(l => {
-
-            if (l.usos >= 2) return false;
-
-            if (l.usuarios.includes(userId)) return false;
-
-            return true;
-
-        });
-
-
-        // sem lote
-        if (!lote) {
-
-            return bot.sendMessage(chatId,
-                '❌ Nenhum lote disponível.');
-        }
-
-
-        // registrar lote
-        lote.usos++;
-        lote.usuarios.push(userId);
-
-        // registrar limite
-        limite.total++;
-
-        salvarDatabase();
-
-
-        // mensagem
-        await bot.sendMessage(chatId,
-
-`✅ Lista entregue com sucesso!
-
-📦 Lote: ${lote.numero}
-📊 Total de contatos: ${lote.contatos.length}
-
-📥 Restam ${4 - limite.total} listas hoje.
-
-📨 Enviando lista...`
-        );
-
-
-        // enviar lista
-        await bot.sendMessage(
-            chatId,
-            lote.contatos.join('\n')
-        );
-
-    }
-
-
-    // STATUS
-    if (data === 'status') {
-
-        if (userId != ADMIN_ID) return;
-
-        let texto =
+            let texto =
 `📊 STATUS GERAL
 
 👥 Usuários aprovados: ${database.usuariosAprovados.length}
@@ -463,66 +542,89 @@ bot.on('callback_query', async (query) => {
 `;
 
 
-        database.lotes.forEach(lote => {
+            database.lotes.forEach(lote => {
 
-            texto +=
+                texto +=
 `📦 ${lote.numero}
 ✅ ${lote.usos}/2 usos
 👤 ${lote.usuarios.length} usuários
+📊 Contatos: ${lote.contatos.length}
 
 `;
 
-        });
+            });
 
 
-        bot.sendMessage(chatId, texto);
+            return bot.sendMessage(chatId, texto);
 
-    }
+        }
 
 
-    // MEU ID
-    if (data === 'meu_id') {
+        // MEU ID
+        if (data === 'meu_id') {
+
+            return bot.sendMessage(chatId,
+                `Seu ID é:\n\n${userId}`);
+
+        }
+
+
+        // LOGS
+        if (data === 'logs') {
+
+            if (userId != ADMIN_ID) return;
+
+            let texto = `📜 LOGS DOS LOTES\n\n`;
+
+
+            database.lotes.forEach(lote => {
+
+                texto +=
+`📦 Lote ${lote.numero}
+
+${lote.usuarios.join('\n') || 'Nenhum'}
+
+`;
+
+            });
+
+
+            return bot.sendMessage(chatId, texto);
+
+        }
+
+
+        // USUÁRIOS
+        if (data === 'usuarios') {
+
+            if (userId != ADMIN_ID) return;
+
+            return bot.sendMessage(chatId,
+                `👥 Usuários aprovados:\n\n${database.usuariosAprovados.join('\n')}`);
+
+        }
+
+
+        // PENDENTES
+        if (data === 'pendentes') {
+
+            if (userId != ADMIN_ID) return;
+
+            return bot.sendMessage(chatId,
+                `📥 Pendentes:\n\n${database.solicitacoes.join('\n') || 'Nenhum'}`);
+
+        }
+
+
+    } catch (error) {
+
+        console.log('Erro no botão:', error.message);
 
         bot.sendMessage(chatId,
-            `Seu ID é:\n\n${userId}`);
+            '❌ Ocorreu um erro ao processar sua solicitação.'
+        ).catch(() => {});
 
     }
-
-
-    // LOGS
-    if (data === 'logs') {
-
-        if (userId != ADMIN_ID) return;
-
-        bot.sendMessage(chatId,
-            'Use o comando:\n\n/logs');
-
-    }
-
-
-    // USUÁRIOS
-    if (data === 'usuarios') {
-
-        if (userId != ADMIN_ID) return;
-
-        bot.sendMessage(chatId,
-            `👥 Usuários aprovados:\n\n${database.usuariosAprovados.join('\n')}`);
-
-    }
-
-
-    // PENDENTES
-    if (data === 'pendentes') {
-
-        if (userId != ADMIN_ID) return;
-
-        bot.sendMessage(chatId,
-            `📥 Pendentes:\n\n${database.solicitacoes.join('\n') || 'Nenhum'}`);
-
-    }
-
-
-    bot.answerCallbackQuery(query.id);
 
 });
 
