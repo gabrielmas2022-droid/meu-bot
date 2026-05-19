@@ -95,42 +95,113 @@ bot.onText(/\/start/, async (msg) => {
     const chatId = msg.chat.id;
 
 
-    // já aprovado
-    if (database.usuariosAprovados.includes(userId)) {
+    // SEM ACESSO
+    if (!database.usuariosAprovados.includes(userId)) {
 
-        return bot.sendMessage(chatId,
-            '✅ Você já possui acesso.');
-    }
+        // já solicitou
+        if (database.solicitacoes.includes(userId)) {
 
-
-    // já solicitou
-    if (database.solicitacoes.includes(userId)) {
-
-        return bot.sendMessage(chatId,
-            '⏳ Sua solicitação já foi enviada.');
-    }
+            return bot.sendMessage(chatId,
+                '⏳ Sua solicitação já foi enviada.');
+        }
 
 
-    // salvar solicitação
-    database.solicitacoes.push(userId);
+        // salvar solicitação
+        database.solicitacoes.push(userId);
 
-    salvarDatabase();
-
-
-    // mensagem usuário
-    bot.sendMessage(chatId,
-        '⏳ Seu acesso está pendente de aprovação.'
-    );
+        salvarDatabase();
 
 
-    // avisar admin
-    bot.sendMessage(ADMIN_ID,
+        // mensagem usuário
+        bot.sendMessage(chatId,
+            '⏳ Seu acesso está pendente de aprovação.'
+        );
+
+
+        // avisar admin
+        bot.sendMessage(ADMIN_ID,
 
 `🔔 Novo pedido de acesso
 
 👤 Nome: ${nome}
 🆔 ID: ${userId}`
-    );
+        );
+
+        return;
+
+    }
+
+
+    // BOTÕES
+    let botoes = [
+
+        [
+            {
+                text: '📦 Receber Lista',
+                callback_data: 'receber_lista'
+            }
+        ],
+
+        [
+            {
+                text: '📊 Status',
+                callback_data: 'status'
+            }
+        ],
+
+        [
+            {
+                text: '🆔 Meu ID',
+                callback_data: 'meu_id'
+            }
+        ]
+
+    ];
+
+
+    // BOTÕES ADMIN
+    if (userId == ADMIN_ID) {
+
+        botoes.push(
+
+            [
+                {
+                    text: '📜 Logs',
+                    callback_data: 'logs'
+                }
+            ],
+
+            [
+                {
+                    text: '👥 Usuários',
+                    callback_data: 'usuarios'
+                }
+            ],
+
+            [
+                {
+                    text: '📥 Pendentes',
+                    callback_data: 'pendentes'
+                }
+            ]
+
+        );
+
+    }
+
+
+    // MENU
+    bot.sendMessage(chatId,
+
+`🐉 Bem-vindo ao Listas Zap!
+
+Escolha uma opção abaixo:`,
+
+{
+    reply_markup: {
+        inline_keyboard: botoes
+    }
+});
 
 });
 
@@ -319,10 +390,85 @@ ${lote.usuarios.join('\n') || 'Nenhum'}
 });
 
 
-console.log('Bot ligado!');
-
+// PING
 bot.onText(/\/ping/, (msg) => {
 
     bot.sendMessage(msg.chat.id,
         '🏓 Bot online!');
 });
+
+
+// BOTÕES
+bot.on('callback_query', async (query) => {
+
+    const chatId = query.message.chat.id;
+    const data = query.data;
+    const userId = query.from.id;
+
+
+    // RECEBER LISTA
+    if (data === 'receber_lista') {
+
+        bot.sendMessage(chatId,
+            'Use o comando:\n\n/lista');
+
+    }
+
+
+    // STATUS
+    if (data === 'status') {
+
+        bot.sendMessage(chatId,
+            'Use o comando:\n\n/status');
+
+    }
+
+
+    // MEU ID
+    if (data === 'meu_id') {
+
+        bot.sendMessage(chatId,
+            `Seu ID é:\n\n${userId}`);
+
+    }
+
+
+    // LOGS
+    if (data === 'logs') {
+
+        if (userId != ADMIN_ID) return;
+
+        bot.sendMessage(chatId,
+            'Use o comando:\n\n/logs');
+
+    }
+
+
+    // USUÁRIOS
+    if (data === 'usuarios') {
+
+        if (userId != ADMIN_ID) return;
+
+        bot.sendMessage(chatId,
+            `👥 Usuários aprovados:\n\n${database.usuariosAprovados.join('\n')}`);
+
+    }
+
+
+    // PENDENTES
+    if (data === 'pendentes') {
+
+        if (userId != ADMIN_ID) return;
+
+        bot.sendMessage(chatId,
+            `📥 Pendentes:\n\n${database.solicitacoes.join('\n') || 'Nenhum'}`);
+
+    }
+
+
+    bot.answerCallbackQuery(query.id);
+
+});
+
+
+console.log('Bot ligado!');
