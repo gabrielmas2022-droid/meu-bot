@@ -1,118 +1,137 @@
 const TelegramBot = require('node-telegram-bot-api');
+const fs = require('fs');
 
 const token = '8594892663:AAF1EvbkgMn7kRW1AXM5c75BQyyPLXMlbQI';
+
+const ADMIN_ID = 8123986377;
 
 const bot = new TelegramBot(token, {
     polling: true
 });
 
 
-// LOTES
-const lotes = [
+// CARREGAR BANCO
+let database = JSON.parse(
+    fs.readFileSync('database.json')
+);
 
-{
-    numero: '001',
-    usos: 0,
-    usuarios: [],
-    contatos: `
-71999999901
-71999999902
-71999999903
-71999999904
-71999999905
-`
-},
 
-{
-    numero: '002',
-    usos: 0,
-    usuarios: [],
-    contatos: `
-71888888801
-71888888802
-71888888803
-71888888804
-71888888805
-`
-},
+// SALVAR BANCO
+function salvarBanco() {
 
-{
-    numero: '003',
-    usos: 0,
-    usuarios: [],
-    contatos: `
-71777777701
-71777777702
-71777777703
-71777777704
-71777777705
-`
+    fs.writeFileSync(
+        'database.json',
+        JSON.stringify(database, null, 2)
+    );
+
 }
 
-];
 
-
-// COMANDO
+// COMANDO LISTA
 bot.onText(/\/lista/, async (msg) => {
 
     const chatId = msg.chat.id;
     const userId = msg.from.id;
 
 
-    // procura lote disponível
-    const loteDisponivel = lotes.find(lote => {
+    const lote = database.lotes.find(l => {
 
-        // lote já atingiu limite
-        if (lote.usos >= 2) {
-            return false;
-        }
+        if (l.usos >= 2) return false;
 
-        // usuário já recebeu esse lote
-        if (lote.usuarios.includes(userId)) {
-            return false;
-        }
+        if (l.usuarios.includes(userId)) return false;
 
         return true;
 
     });
 
 
-    // nenhum lote disponível
-    if (!loteDisponivel) {
+    if (!lote) {
 
         return bot.sendMessage(chatId,
-            '❌ Nenhuma lista disponível para você.');
+            '❌ Nenhum lote disponível.');
     }
 
 
-    // registra usuário
-    loteDisponivel.usuarios.push(userId);
+    lote.usos++;
+    lote.usuarios.push(userId);
 
-    // aumenta uso
-    loteDisponivel.usos++;
-
-
-    // total de contatos
-    const totalContatos = loteDisponivel.contatos
-        .trim()
-        .split('\n')
-        .length;
+    salvarBanco();
 
 
-    // mensagem organizada
     await bot.sendMessage(chatId,
 
 `✅ Lista entregue com sucesso!
 
-📦 Lote: ${loteDisponivel.numero}
-📊 Total de contatos: ${totalContatos}
+📦 Lote: ${lote.numero}
+📊 Total de contatos: ${lote.contatos.length}
 
-📨 Enviando a lista no chat...`
+📨 Enviando lista...`
     );
 
 
-    // envia lista
-    await bot.sendMessage(chatId, loteDisponivel.contatos);
+    await bot.sendMessage(
+        chatId,
+        lote.contatos.join('\n')
+    );
+
+});
+
+
+// STATUS ADMIN
+bot.onText(/\/status/, (msg) => {
+
+    if (msg.from.id !== ADMIN_ID) {
+        return;
+    }
+
+
+    let texto = `📊 STATUS DOS LOTES\n\n`;
+
+
+    database.lotes.forEach(lote => {
+
+        const restante = 2 - lote.usos;
+
+        texto +=
+`📦 Lote ${lote.numero}
+✅ Usos: ${lote.usos}/2
+📌 Restantes: ${restante}
+
+`;
+
+    });
+
+
+    bot.sendMessage(msg.chat.id, texto);
+
+});
+
+
+// LOGS
+bot.onText(/\/logs/, (msg) => {
+
+    if (msg.from.id !== ADMIN_ID) {
+        return;
+    }
+
+
+    let texto = `📜 LOGS DOS LOTES\n\n`;
+
+
+    database.lotes.forEach(lote => {
+
+        texto +=
+`📦 Lote ${lote.numero}
+
+👤 Usuários:
+${lote.usuarios.join('\n') || 'Nenhum'}
+
+`;
+
+    });
+
+
+    bot.sendMessage(msg.chat.id, texto);
 
 });
 
