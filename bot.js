@@ -271,14 +271,30 @@ bot.onText(/\/start/, async (msg) => {
         );
 
 
-        // avisar admin
+        // avisar admin com botões
         bot.sendMessage(ADMIN_ID,
 
 `🔔 Novo pedido de acesso
 
 👤 Nome: ${nome}
-🆔 ID: ${userId}`
-        );
+🆔 ID: ${userId}`,
+
+{
+    reply_markup: {
+        inline_keyboard: [
+            [
+                {
+                    text: '✅ Aprovar',
+                    callback_data: `aprovar_${userId}`
+                },
+                {
+                    text: '❌ Recusar',
+                    callback_data: `recusar_${userId}`
+                }
+            ]
+        ]
+    }
+});
 
         return;
 
@@ -359,7 +375,7 @@ Escolha uma opção abaixo:`,
 });
 
 
-// APROVAR
+// APROVAR POR COMANDO
 bot.onText(/\/aprovar (.+)/, (msg, match) => {
 
     if (msg.from.id !== ADMIN_ID) return;
@@ -404,7 +420,7 @@ bot.onText(/\/aprovar (.+)/, (msg, match) => {
 });
 
 
-// REMOVER
+// REMOVER POR COMANDO
 bot.onText(/\/remover (.+)/, (msg, match) => {
 
     if (msg.from.id !== ADMIN_ID) return;
@@ -434,7 +450,7 @@ bot.onText(/\/remover (.+)/, (msg, match) => {
 });
 
 
-// STATUS
+// STATUS POR COMANDO
 bot.onText(/\/status/, (msg) => {
 
     if (msg.from.id !== ADMIN_ID) return;
@@ -469,7 +485,7 @@ bot.onText(/\/status/, (msg) => {
 });
 
 
-// LOGS
+// LOGS POR COMANDO
 bot.onText(/\/logs/, (msg) => {
 
     if (msg.from.id !== ADMIN_ID) return;
@@ -516,6 +532,109 @@ bot.on('callback_query', async (query) => {
 
 
     try {
+
+
+        // APROVAR USUÁRIO PELO BOTÃO
+        if (data.startsWith('aprovar_')) {
+
+            if (userId != ADMIN_ID) return;
+
+            const novoUserId = Number(data.replace('aprovar_', ''));
+
+
+            if (!novoUserId) {
+
+                return bot.sendMessage(chatId,
+                    '❌ ID inválido.');
+            }
+
+
+            if (!database.usuariosAprovados.includes(novoUserId)) {
+
+                database.usuariosAprovados.push(novoUserId);
+
+            }
+
+
+            database.solicitacoes =
+                database.solicitacoes.filter(
+                    id => id !== novoUserId
+                );
+
+            salvarDatabase();
+
+
+            await bot.sendMessage(chatId,
+                `✅ Usuário ${novoUserId} aprovado com sucesso.`
+            );
+
+
+            await bot.sendMessage(novoUserId,
+                '✅ Seu acesso foi aprovado!\n\nUse /start para abrir o menu.'
+            ).catch(() => {});
+
+
+            await bot.editMessageText(
+                `✅ Pedido aprovado
+
+🆔 ID: ${novoUserId}`,
+                {
+                    chat_id: chatId,
+                    message_id: query.message.message_id
+                }
+            ).catch(() => {});
+
+            return;
+
+        }
+
+
+        // RECUSAR USUÁRIO PELO BOTÃO
+        if (data.startsWith('recusar_')) {
+
+            if (userId != ADMIN_ID) return;
+
+            const novoUserId = Number(data.replace('recusar_', ''));
+
+
+            if (!novoUserId) {
+
+                return bot.sendMessage(chatId,
+                    '❌ ID inválido.');
+            }
+
+
+            database.solicitacoes =
+                database.solicitacoes.filter(
+                    id => id !== novoUserId
+                );
+
+            salvarDatabase();
+
+
+            await bot.sendMessage(chatId,
+                `❌ Usuário ${novoUserId} recusado.`
+            );
+
+
+            await bot.sendMessage(novoUserId,
+                '❌ Sua solicitação de acesso foi recusada.'
+            ).catch(() => {});
+
+
+            await bot.editMessageText(
+                `❌ Pedido recusado
+
+🆔 ID: ${novoUserId}`,
+                {
+                    chat_id: chatId,
+                    message_id: query.message.message_id
+                }
+            ).catch(() => {});
+
+            return;
+
+        }
 
 
         // RECEBER LISTA
