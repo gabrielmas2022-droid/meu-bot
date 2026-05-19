@@ -320,3 +320,9 @@ ${lote.usuarios.join('\n') || 'Nenhum'}
 
 
 console.log('Bot ligado!');
+
+bot.onText(/\/ping/, (msg) => {
+
+    bot.sendMessage(msg.chat.id,
+        '🏓 Bot online!');
+});
