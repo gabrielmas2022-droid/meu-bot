@@ -13,6 +13,7 @@ const lotes = [
 {
     numero: '001',
     usos: 0,
+    usuarios: [],
     contatos: `
 71999999901
 71999999902
@@ -25,24 +26,26 @@ const lotes = [
 {
     numero: '002',
     usos: 0,
+    usuarios: [],
     contatos: `
-71988888801
-71988888802
-71988888803
-71988888804
-71988888805
+71888888801
+71888888802
+71888888803
+71888888804
+71888888805
 `
 },
 
 {
     numero: '003',
     usos: 0,
+    usuarios: [],
     contatos: `
-71977777701
-71977777702
-71977777703
-71977777704
-71977777705
+71777777701
+71777777702
+71777777703
+71777777704
+71777777705
 `
 }
 
@@ -53,25 +56,44 @@ const lotes = [
 bot.onText(/\/lista/, async (msg) => {
 
     const chatId = msg.chat.id;
+    const userId = msg.from.id;
 
-    
+
     // procura lote disponível
-    const lote = lotes.find(l => l.usos < 2);
+    const loteDisponivel = lotes.find(lote => {
+
+        // lote já atingiu limite
+        if (lote.usos >= 2) {
+            return false;
+        }
+
+        // usuário já recebeu esse lote
+        if (lote.usuarios.includes(userId)) {
+            return false;
+        }
+
+        return true;
+
+    });
 
 
-    // se não existir mais lote
-    if (!lote) {
+    // nenhum lote disponível
+    if (!loteDisponivel) {
+
         return bot.sendMessage(chatId,
-            '❌ Todas as listas foram esgotadas, aguarde atualização.');
+            '❌ Nenhuma lista disponível para você.');
     }
 
 
+    // registra usuário
+    loteDisponivel.usuarios.push(userId);
+
     // aumenta uso
-    lote.usos++;
+    loteDisponivel.usos++;
 
 
-    // conta contatos
-    const totalContatos = lote.contatos
+    // total de contatos
+    const totalContatos = loteDisponivel.contatos
         .trim()
         .split('\n')
         .length;
@@ -79,17 +101,18 @@ bot.onText(/\/lista/, async (msg) => {
 
     // mensagem organizada
     await bot.sendMessage(chatId,
+
 `✅ Lista entregue com sucesso!
 
-📦 Lote: ${lote.numero}
+📦 Lote: ${loteDisponivel.numero}
 📊 Total de contatos: ${totalContatos}
 
 📨 Enviando a lista no chat...`
     );
 
 
-    // envia contatos
-    await bot.sendMessage(chatId, lote.contatos);
+    // envia lista
+    await bot.sendMessage(chatId, loteDisponivel.contatos);
 
 });
 
