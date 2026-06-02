@@ -87,6 +87,10 @@ if (!Array.isArray(database.lotes)) {
     database.lotes = [];
 }
 
+if (!Array.isArray(database.ultimosLotes)) {
+    database.ultimosLotes = [];
+}
+
 database.lotes.forEach(lote => {
 
     if (!lote.numero) lote.numero = '000';
@@ -308,16 +312,17 @@ async function entregarLista(chatId, userId) {
     // procurar lote disponível
     const lote = database.lotes.find(l => {
 
-        if (l.usos >= 2) return false;
+    if (l.usos >= 2) return false;
 
-        if (l.usuarios.includes(userId)) return false;
+    if (l.usuarios.includes(userId)) return false;
 
-        if (!l.contatos || l.contatos.length === 0) return false;
+    if (!l.contatos || l.contatos.length === 0) return false;
 
-        return true;
+    if (database.ultimosLotes.includes(l.numero)) return false;
 
-    });
+    return true;
 
+});
 
     // nenhum lote disponível
     if (!lote) {
@@ -330,6 +335,12 @@ async function entregarLista(chatId, userId) {
     // registrar uso do lote
     lote.usos++;
     lote.usuarios.push(userId);
+
+database.ultimosLotes.push(lote.numero);
+
+if (database.ultimosLotes.length > 2) {
+    database.ultimosLotes.shift();
+}
 
 
     // registrar limite diário

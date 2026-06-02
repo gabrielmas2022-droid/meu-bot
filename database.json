@@ -1,10 +1,12 @@
 {
   "usuariosAprovados": [
     8123986377,
-8547954296
-
+    8547954296,
+    8195619720
   ],
   "solicitacoes": [],
   "limites": {},
-  "lotes": []
-}
+"ultimosLotes": [],
+  "lotes": [
+    {
+      
